@@ -1,21 +1,44 @@
-import HyperExpress from 'hyper-express';
+import HyperExpress, { Request, Response } from 'hyper-express';
 import { authenticate } from './middlewares/auth.middleware';
+import { validate } from './config/validate';
+import 'dotenv/config';
+import logger from './config/logger';
+import { reqLogger } from './middlewares/logging.middleware';
+import { createClient } from '@redis/client';
 
-const app = new HyperExpress.Server();
-
-const port = parseInt(process.env.PORT as string) || 3000;
-
-app.get('/', (req, res) => {
-  res.send('Hello World!');
+export const config = validate({
+  ...process.env,
 });
 
-app.use(authenticate);
+export const redis = createClient({
+  url: config.redis.url,
+});
 
-app
-  .listen(port)
-  .then(() => {
-    console.log(`Server is running on http://localhost:${port}`);
-  })
-  .catch((err) => {
-    console.error(err);
+async function bootstrap() {
+  const app = new HyperExpress.Server();
+
+  await redis.connect();
+
+  app.get('/', (req: Request, res: Response) => {
+    res.send('Hello, World!');
   });
+
+  app.use(reqLogger);
+  app.use(authenticate);
+
+  await app
+    .listen(config.port)
+    .then(() => {
+      logger.info(`Server is running on port ${config.port}`);
+    })
+    .catch((err) => {
+      logger.error(err);
+    });
+
+  process.on('SIGINT', async () => {
+    await redis.disconnect();
+    process.exit();
+  });
+}
+
+bootstrap();
